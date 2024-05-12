@@ -11,14 +11,9 @@ This PowerShell script processes data from a text file and writes it to an Excel
 
 
 ## Setup 
-
-![alt text](image-2.png)
-
-###### Change the scanner txt file directory on line 48.
-
 ![alt text](image-1.png)
 
-###### Also change the excel file directory on line 74.
+######  Change the excel file directory on line 74.
 
 
 ### Troubleshooting and syntax
