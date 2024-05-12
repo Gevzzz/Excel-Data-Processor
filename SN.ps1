@@ -3,115 +3,166 @@
 ##Date: 2024-05-09
 ##Owned by: NCIA CSU
 ##Description: This script processes the data from a text file and writes it to an Excel file.
+
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "Excel Data Processor NCIA CSU"
-$form.Size = New-Object System.Drawing.Size(500, 380) 
-$form.StartPosition = 'CenterScreen' 
-$form.BackColor = [System.Drawing.Color]::LightGray 
+$form.Text = "Excel Data Processor - NCIA CSU"
+$form.Size = New-Object System.Drawing.Size(600, 430)
+$form.StartPosition = 'CenterScreen'
+$form.BackColor = [System.Drawing.Color]::White
+$form.FormBorderStyle = 'FixedDialog'
+$form.MaximizeBox = $false
 
 $instructionLabel = New-Object System.Windows.Forms.Label
-$instructionLabel.Text = "PLEASE CLOSE THE EXCEL FILE BEFORE PROCESSING THE DATA"
-$instructionLabel.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold) 
-$instructionLabel.ForeColor = [System.Drawing.Color]::DarkRed 
-$instructionLabel.Location = New-Object System.Drawing.Point(20, 20)
+$instructionLabel.Text = "Please select a text file to process"
+$instructionLabel.Font = New-Object System.Drawing.Font("Arial", 12, [System.Drawing.FontStyle]::Bold)
+$instructionLabel.ForeColor = [System.Drawing.Color]::DarkSlateGray
 $instructionLabel.AutoSize = $true
+$instructionLabel.Location = New-Object System.Drawing.Point(30, 20)
+
+$fileSelectionButton = New-Object System.Windows.Forms.Button
+$fileSelectionButton.Text = "Select Text File"
+$fileSelectionButton.Font = New-Object System.Drawing.Font("Arial", 10)
+$fileSelectionButton.Location = New-Object System.Drawing.Point(30, 60)
+$fileSelectionButton.Size = New-Object System.Drawing.Size(150, 40)
+$fileSelectionButton.BackColor = [System.Drawing.Color]::SteelBlue
+$fileSelectionButton.ForeColor = [System.Drawing.Color]::White
+$fileSelectionButton.FlatStyle = 'Flat'
+$fileSelectionButton.FlatAppearance.BorderSize = 0
+$fileSelectionButton.Add_Click({
+        $fileDialog = New-Object System.Windows.Forms.OpenFileDialog
+        $fileDialog.Title = "Select the Text File"
+        $fileDialog.Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*"
+        $fileDialog.InitialDirectory = [Environment]::GetFolderPath("Desktop")
+        $result = $fileDialog.ShowDialog()
+        if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+            $global:selectedFile = $fileDialog.FileName
+            $textBox.AppendText([Environment]::NewLine + [Environment]::NewLine + "Selected file: $global:selectedFile" + [Environment]::NewLine)
+        }
+    })
+
+$processButton = New-Object System.Windows.Forms.Button
+$processButton.Text = "Process Data"
+$processButton.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$processButton.Location = New-Object System.Drawing.Point(210, 60)
+$processButton.Size = New-Object System.Drawing.Size(150, 40)
+$processButton.BackColor = [System.Drawing.Color]::SteelBlue
+$processButton.ForeColor = [System.Drawing.Color]::White
+$processButton.FlatStyle = 'Flat'
+$processButton.FlatAppearance.BorderSize = 0
+$processButton.Add_Click({
+        try {
+            $scannerData = Get-Content -Path $global:selectedFile
+            $rowsForExcel = @()
+            $currentNCIATags = @()
+            $currentOfficeNumber = $null
+            $currentDivision = $null
+
+            foreach ($line in $scannerData) {
+                $parts = $line.Split(',')
+                $identifier = $parts[2]
+        
+                if ($identifier -like "NCIA*") {
+                    $currentNCIATags += $identifier
+                } 
+                elseif ($currentOfficeNumber -eq $null) {
+                    $currentOfficeNumber = $identifier
+                }
+                else {
+                    $currentDivision = $identifier
+                    if ($currentNCIATags.Count -gt 0) {
+                        foreach ($tag in $currentNCIATags) {
+                            $currentScanData = @($tag, $currentOfficeNumber, $currentDivision)
+                            $rowsForExcel += , $currentScanData
+                        }
+                    }
+                    else {
+                        $firstDivision = ($scannerData -split '[\r\n]')[0].Split(',')[2]
+                        $rowsForExcel += , @($null, $currentOfficeNumber, $firstDivision)
+                    }
+                    $currentNCIATags = @()
+                    $currentOfficeNumber = $null
+                    $currentDivision = $null
+                }
+            }
+        
+        
+        
+
+            $rowsForExcel | ForEach-Object {
+                Write-Host "Data to be written to Excel: $_" -ForegroundColor Cyan
+            }
+
+            $excelFilePath = "C:\Users\gevor\Desktop\EXCEL CSU\data.xlsx"
+            $excel = New-Object -ComObject Excel.Application
+            $excel.Visible = $false
+            $excel.DisplayAlerts = $false
+
+            $workbook = $excel.Workbooks.Open($excelFilePath)
+            $worksheet = $workbook.Worksheets.Item("Sheet1")
+
+            $rowIndex = 1
+            while ($worksheet.Cells.Item($rowIndex, 3).Value2 -ne $null) {
+                $rowIndex += 1
+            }
+
+            foreach ($row in $rowsForExcel) {
+                $colIndex = 3
+                foreach ($item in $row) {
+                    $worksheet.Cells.Item($rowIndex, $colIndex).Value2 = $item
+                    $colIndex += 1
+                }
+                $rowIndex += 1
+            }
+
+            $workbook.Save()
+            $excel.Quit()
+
+            [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null
+
+            Write-Host "Data processed successfully!" -ForegroundColor Green
+            $textBox.AppendText([Environment]::NewLine + [Environment]::NewLine + "Data processed successfully!")
+        }
+        catch {
+            Write-Host "An error occurred: " + $_.Exception.Message -ForegroundColor Red
+            $textBox.AppendText([Environment]::NewLine + [Environment]::NewLine + "An error occurred: " + $_.Exception.Message)
+        }
+    })
 
 $groupBox = New-Object System.Windows.Forms.GroupBox
 $groupBox.Text = "Processing Controls"
 $groupBox.Font = New-Object System.Drawing.Font("Arial", 10)
-$groupBox.Size = New-Object System.Drawing.Size(460, 180)
-$groupBox.Location = New-Object System.Drawing.Point(20, 50)
+$groupBox.Location = New-Object System.Drawing.Point(30, 120)
+$groupBox.Size = New-Object System.Drawing.Size(540, 100)
 
 $clearContentCheckbox = New-Object System.Windows.Forms.CheckBox
 $clearContentCheckbox.Text = "Clear content of source file after processing"
 $clearContentCheckbox.Font = New-Object System.Drawing.Font("Arial", 9)
 $clearContentCheckbox.AutoSize = $true
-$clearContentCheckbox.Location = New-Object System.Drawing.Point(20, 40) 
-
-$button = New-Object System.Windows.Forms.Button
-$button.Text = "Process Data"
-$button.Size = New-Object System.Drawing.Size(120, 40)
-$button.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
-$button.Location = New-Object System.Drawing.Point(180, 100) 
+$clearContentCheckbox.Location = New-Object System.Drawing.Point(20, 20)
 
 $textBox = New-Object System.Windows.Forms.TextBox
 $textBox.Multiline = $true
 $textBox.ReadOnly = $true
 $textBox.ScrollBars = 'Vertical'
-$textBox.Location = New-Object System.Drawing.Point(20, 240)
-$textBox.Size = New-Object System.Drawing.Size(460, 90) 
+$textBox.Location = New-Object System.Drawing.Point(30, 240)
+$textBox.Size = New-Object System.Drawing.Size(540, 120)
 
-$button.Add_Click({
-    try {
-        $scannerData = Get-Content -Path 'C:\Users\gevor\Desktop\DM.txt'
-        $rowsForExcel = @()
-        $currentNCIATags = @()
-        $currentOfficeNumber = $null
-        $currentDivision = $null
-
-        foreach ($line in $scannerData) {
-            $parts = $line.Split(',')
-            $identifier = $parts[2]
-
-            if ($identifier -like "NCIA*") {
-                $currentNCIATags += $identifier
-            } elseif ($identifier -notlike "NCIA*" -and $currentOfficeNumber -eq $null) {
-                $currentOfficeNumber = $identifier
-            } elseif ($identifier -notlike "NCIA*" -and $currentOfficeNumber -ne $null) {
-                $currentDivision = $identifier
-                foreach ($tag in $currentNCIATags) {
-                    $currentScanData = @($tag, $currentOfficeNumber, $currentDivision)
-                    $rowsForExcel += ,$currentScanData
-                }
-                $currentNCIATags = @()
-                $currentOfficeNumber = $null
-                $currentDivision = $null
-            }
-        }
-
-        $excelFilePath = "C:\Users\gevor\Desktop\data.xlsx"
-        $excel = New-Object -ComObject Excel.Application
-        $excel.Visible = $false
-        $excel.DisplayAlerts = $false
-
-        $workbook = $excel.Workbooks.Open($excelFilePath)
-        $worksheet = $workbook.Worksheets.Item("Sheet1")
-
-        $rowIndex = 1
-        while ($worksheet.Cells.Item($rowIndex, 3).Value2 -ne $null) {
-            $rowIndex += 1
-        }
-
-        foreach ($row in $rowsForExcel) {
-            $colIndex = 3
-            foreach ($item in $row) {
-                $worksheet.Cells.Item($rowIndex, $colIndex).Value2 = $item
-                $colIndex += 1
-            }
-            $rowIndex += 1
-        }
-
-        $workbook.Save()
-        $excel.Quit()
-
-        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null
-
-        if ($clearContentCheckbox.Checked) {
-            Clear-Content -Path 'C:\Users\gevor\Desktop\DM.txt'
-        }
-
-        $textBox.Text = "Data processed successfully!"
-    } catch {
-        $textBox.Text = "An error occurred: " + $_.Exception.Message
-    }
-})
+$warningLabel = New-Object System.Windows.Forms.Label
+$warningLabel.Text = "Please ensure that the Excel file is closed."
+$warningLabel.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$warningLabel.ForeColor = [System.Drawing.Color]::Red
+$warningLabel.AutoSize = $true
+$warningLabel.Location = New-Object System.Drawing.Point(30, 370)
 
 $form.Controls.Add($instructionLabel)
+$form.Controls.Add($fileSelectionButton)
+$form.Controls.Add($processButton)
 $form.Controls.Add($groupBox)
-$groupBox.Controls.Add($button)
 $groupBox.Controls.Add($clearContentCheckbox)
 $form.Controls.Add($textBox)
+$form.Controls.Add($warningLabel)
 
 $form.ShowDialog()
