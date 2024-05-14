@@ -7,6 +7,24 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+class ScanData {
+    [string]$SerialNumberOrTag
+    [string]$OfficeLocation
+    [string]$Division
+
+    ScanData([string]$serialNumberOrTag, [string]$officeLocation, [string]$division) {
+        $this.SerialNumberOrTag = $serialNumberOrTag
+        $this.OfficeLocation = $officeLocation
+        $this.Division = $division
+    }
+
+    [bool] Validate() {
+        $isValidOfficeLocation = $this.OfficeLocation -match "^[SLIP]"
+        $isValidDivision = $this.Division -match "^B\d+$"
+        return $isValidOfficeLocation -and $isValidDivision
+    }
+}
+
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "Excel Data Processor - NCIA CSU"
 $form.Size = New-Object System.Drawing.Size(600, 430)
@@ -53,83 +71,94 @@ $processButton.ForeColor = [System.Drawing.Color]::White
 $processButton.FlatStyle = 'Flat'
 $processButton.FlatAppearance.BorderSize = 0
 $processButton.Add_Click({
-        try {
-            $scannerData = Get-Content -Path $global:selectedFile
-            $rowsForExcel = @()
-            $currentNCIATags = @()
-            $currentOfficeNumber = $null
-            $currentDivision = $null
+    try {
+        $scannerData = Get-Content -Path $global:selectedFile | Where-Object { $_ -ne "" }  # Skip empty lines
+        $rowsForExcel = @()
+        $currentNCIATags = @()
+        $currentOfficeNumber = $null
+        $currentDivision = $null
 
-            foreach ($line in $scannerData) {
-                $parts = $line.Split(',')
-                $identifier = $parts[2]
-        
-                if ($identifier -like "NCIA*") {
-                    $currentNCIATags += $identifier
-                } 
-                elseif ($currentOfficeNumber -eq $null) {
-                    $currentOfficeNumber = $identifier
-                }
-                else {
-                    $currentDivision = $identifier
-                    if ($currentNCIATags.Count -gt 0) {
-                        foreach ($tag in $currentNCIATags) {
-                            $currentScanData = @($tag, $currentOfficeNumber, $currentDivision)
-                            $rowsForExcel += , $currentScanData
+        foreach ($line in $scannerData) {
+            $parts = $line.Split(',')
+            if ($parts.Length -ne 3) {
+                Write-Host "Skipping invalid line: $line" -ForegroundColor Yellow
+                $textBox.AppendText([Environment]::NewLine + "Skipping invalid line: $line")
+                continue
+            }
+
+            $identifier = $parts[2]
+
+            if ($identifier -like "NCIA*") {
+                $currentNCIATags += $identifier
+            } elseif ($identifier -match "^[SLIP]") {
+                $currentOfficeNumber = $identifier
+            } elseif ($identifier -match "^B\d+$") {
+                $currentDivision = $identifier
+                if ($currentNCIATags.Count -gt 0) {
+                    foreach ($tag in $currentNCIATags) {
+                        $scanData = [ScanData]::new($tag, $currentOfficeNumber, $currentDivision)
+                        if ($scanData.Validate()) {
+                            $rowsForExcel += , @($scanData.SerialNumberOrTag, $scanData.OfficeLocation, $scanData.Division)
+                        } else {
+                            Write-Host "Invalid data detected: $($scanData | ConvertTo-Json)" -ForegroundColor Red
+                            $textBox.AppendText([Environment]::NewLine + "Invalid data detected: $($scanData | ConvertTo-Json)")
                         }
                     }
-                    else {
-                        $firstDivision = ($scannerData -split '[\r\n]')[0].Split(',')[2]
-                        $rowsForExcel += , @($null, $currentOfficeNumber, $firstDivision)
-                    }
-                    $currentNCIATags = @()
-                    $currentOfficeNumber = $null
-                    $currentDivision = $null
+                } else {
+                    Write-Host "Invalid data detected: No NCIA tags for office number $currentOfficeNumber and division $currentDivision" -ForegroundColor Red
+                    $textBox.AppendText([Environment]::NewLine + "Invalid data detected: No NCIA tags for office number $currentOfficeNumber and division $currentDivision")
                 }
+                $currentNCIATags = @()
+                $currentOfficeNumber = $null
+                $currentDivision = $null
+            } else {
+                Write-Host "Invalid identifier detected: $identifier" -ForegroundColor Yellow
+                $textBox.AppendText([Environment]::NewLine + "Invalid identifier detected: $identifier")
             }
-        
-        
-        
-
-            $rowsForExcel | ForEach-Object {
-                Write-Host "Data to be written to Excel: $_" -ForegroundColor Cyan
-            }
-
-            $excelFilePath = "C:\Users\gevor\Desktop\EXCEL CSU\data.xlsx"
-            $excel = New-Object -ComObject Excel.Application
-            $excel.Visible = $false
-            $excel.DisplayAlerts = $false
-
-            $workbook = $excel.Workbooks.Open($excelFilePath)
-            $worksheet = $workbook.Worksheets.Item("Sheet1")
-
-            $rowIndex = 1
-            while ($worksheet.Cells.Item($rowIndex, 3).Value2 -ne $null) {
-                $rowIndex += 1
-            }
-
-            foreach ($row in $rowsForExcel) {
-                $colIndex = 3
-                foreach ($item in $row) {
-                    $worksheet.Cells.Item($rowIndex, $colIndex).Value2 = $item
-                    $colIndex += 1
-                }
-                $rowIndex += 1
-            }
-
-            $workbook.Save()
-            $excel.Quit()
-
-            [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null
-
-            Write-Host "Data processed successfully!" -ForegroundColor Green
-            $textBox.AppendText([Environment]::NewLine + [Environment]::NewLine + "Data processed successfully!")
         }
-        catch {
-            Write-Host "An error occurred: " + $_.Exception.Message -ForegroundColor Red
-            $textBox.AppendText([Environment]::NewLine + [Environment]::NewLine + "An error occurred: " + $_.Exception.Message)
+
+        $rowsForExcel | ForEach-Object {
+            Write-Host "Data to be written to Excel: $_" -ForegroundColor Cyan
+            $textBox.AppendText([Environment]::NewLine + "Data to be written to Excel: $_")
         }
-    })
+
+        $excelFilePath = "C:\Users\gevor\Desktop\EXCEL CSU\data.xlsx"
+        $excel = New-Object -ComObject Excel.Application
+        $excel.Visible = $false
+        $excel.DisplayAlerts = $false
+
+        $workbook = $excel.Workbooks.Open($excelFilePath)
+        $worksheet = $workbook.Worksheets.Item("Sheet1")
+
+        # Find the first empty row in the Excel sheet in column C, if you want A, change 3 to 1
+        $rowIndex = 1
+        while ($worksheet.Cells.Item($rowIndex, 3).Value2 -ne $null) {
+            $rowIndex += 1
+        }
+
+        # Write the data to the Excel sheet starting from the first empty row in column C , if you want A, change 3 to 1
+        foreach ($row in $rowsForExcel) {
+            $colIndex = 3
+            foreach ($item in $row) {
+                $worksheet.Cells.Item($rowIndex, $colIndex).Value2 = $item
+                $colIndex += 1
+            }
+            $rowIndex += 1
+        }
+
+        $workbook.Save()
+        $excel.Quit()
+
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null
+
+        Write-Host "Data processed successfully!" -ForegroundColor Green
+        $textBox.AppendText([Environment]::NewLine + [Environment]::NewLine + "Data processed successfully!")
+    }
+    catch {
+        Write-Host "An error occurred: " + $_.Exception.Message -ForegroundColor Red
+        $textBox.AppendText([Environment]::NewLine + [Environment]::NewLine + "An error occurred: " + $_.Exception.Message)
+    }
+})
 
 $groupBox = New-Object System.Windows.Forms.GroupBox
 $groupBox.Text = "Processing Controls"
